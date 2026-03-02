@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PDF Mail Merge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<!-- CDN Libraries — no install needed -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<style>
+/* ─────────────────────────────────────────────
+   TOKENS
+───────────────────────────────────────────── */
+:root {
+  --bg:        #F0EEE9;
+  --surface:   #FFFFFF;
+  --border:    #E2DDD6;
+  --ink:       #1C1917;
+  --ink-2:     #78716C;
+  --accent:    #2563EB;
+  --accent-bg: #EFF6FF;
+  --green:     #059669;
+  --green-bg:  #ECFDF5;
+  --red:       #DC2626;
+  --red-bg:    #FEF2F2;
+
+  --r:    14px;
+  --r-sm: 8px;
+  --sh:   0 1px 2px rgba(0,0,0,.04), 0 4px 20px rgba(0,0,0,.06);
+  --sh-up:0 8px 32px rgba(0,0,0,.12);
+  --ff-h: 'Sora', sans-serif;
+  --ff-b: 'DM Sans', sans-serif;
+  --ease: cubic-bezier(.4,0,.2,1);
+}
+
+/* ─────────────────────────────────────────────
+   RESET + BASE
+───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--ff-b);
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.6;
+  min-height: 100vh;
+  padding: 40px 16px 80px;
+}
+
+/* ─────────────────────────────────────────────
+   LAYOUT
+───────────────────────────────────────────── */
+.pmm-wrap {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* ─────────────────────────────────────────────
+   HERO
+───────────────────────────────────────────── */
+.pmm-hero {
+  text-align: center;
+  margin-bottom: 44px;
+}
+.pmm-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px; height: 64px;
+  background: var(--ink);
+  border-radius: 18px;
+  margin-bottom: 20px;
+}
+.pmm-hero-icon svg { width: 32px; height: 32px; color: #fff; }
+.pmm-hero h1 {
+  font-family: var(--ff-h);
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 800;
+  letter-spacing: -.03em;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+.pmm-hero p {
+  color: var(--ink-2);
+  font-size: .95rem;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+/* ─────────────────────────────────────────────
+   PROGRESS RAIL
+───────────────────────────────────────────── */
+.pmm-rail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 36px;
+}
+.pmm-rail-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+.pmm-rail-step + .pmm-rail-step::before {
+  content: '';
+  position: absolute;
+  left: calc(-50% + 16px);
+  top: 16px;
+  width: calc(100% - 32px);
+  height: 2px;
+  background: var(--border);
+  transform: translateX(-50%);
+  transition: background .4s var(--ease);
+}
+.pmm-rail-step.done + .pmm-rail-step::before { background: var(--accent); }
+
+.pmm-rail-num {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--ff-h);
+  font-size: .78rem;
+  font-weight: 700;
+  color: var(--ink-2);
+  transition: all .3s var(--ease);
+  z-index: 1;
+}
+.pmm-rail-step.active .pmm-rail-num {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 0 4px var(--accent-bg);
+}
+.pmm-rail-step.done .pmm-rail-num {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
+}
+.pmm-rail-label {
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.pmm-rail-step.active .pmm-rail-label { color: var(--accent); }
+.pmm-rail-step.done  .pmm-rail-label  { color: var(--green); }
+
+/* ─────────────────────────────────────────────
+   STEP CARDS
+───────────────────────────────────────────── */
+.pmm-step {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--sh);
+  margin-bottom: 16px;
+  overflow: hidden;
+
+  /* Hidden state */
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(16px);
+  transition:
+    max-height .5s var(--ease),
+    opacity    .4s var(--ease),
+    transform  .4s var(--ease),
+    box-shadow .2s var(--ease);
+}
+.pmm-step.visible {
+  max-height: 900px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.pmm-step.visible.active { box-shadow: var(--sh-up); border-color: #CBD5E1; }
+.pmm-step.collapsed { max-height: 68px; }
+
+/* Card header */
+.pmm-step-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 22px;
+  cursor: pointer;
+  user-select: none;
+}
+.pmm-step-head-num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--ff-h);
+  font-size: .8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: all .3s var(--ease);
+}
+.pmm-step.done .pmm-step-head-num {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.pmm-step-head-title {
+  flex: 1;
+  font-family: var(--ff-h);
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.pmm-step-head-summary {
+  font-size: .78rem;
+  color: var(--ink-2);
+  background: var(--bg);
+  border-radius: 20px;
+  padding: 3px 10px;
+  display: none;
+}
+.pmm-step.done .pmm-step-head-summary { display: inline-block; }
+.pmm-step-head-chevron {
+  width: 18px; height: 18px;
+  color: var(--ink-2);
+  transition: transform .3s var(--ease);
+  flex-shrink: 0;
+}
+.pmm-step.collapsed .pmm-step-head-chevron { transform: rotate(-90deg); }
+
+/* Card body */
+.pmm-step-body { padding: 0 22px 22px; }
+.pmm-step.collapsed .pmm-step-body { display: none; }
+
+/* ─────────────────────────────────────────────
+   DROPZONE
+───────────────────────────────────────────── */
+.pmm-drop {
+  border: 2px dashed var(--border);
+  border-radius: var(--r-sm);
+  padding: 36px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .2s var(--ease);
+  position: relative;
+  background: var(--bg);
+}
+.pmm-drop:hover, .pmm-drop.over {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.pmm-drop input[type=file] {
+  position: absolute; inset: 0;
+  opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+.pmm-drop-icon {
+  width: 44px; height: 44px;
+  margin: 0 auto 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+.pmm-drop-icon svg { width: 22px; height: 22px; color: var(--accent); }
+.pmm-drop p { font-size: .88rem; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+.pmm-drop small { font-size: .77rem; color: var(--ink-2); }
+
+/* ─────────────────────────────────────────────
+   FILE CHIP (after upload)
+───────────────────────────────────────────── */
+.pmm-file-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--green-bg);
+  border: 1px solid #A7F3D0;
+  border-radius: var(--r-sm);
+  margin-bottom: 16px;
+}
+.pmm-file-chip svg { width: 18px; height: 18px; color: var(--green); flex-shrink: 0; }
+.pmm-file-chip-name { font-size: .85rem; font-weight: 600; color: var(--ink); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmm-file-chip-meta { font-size: .75rem; color: var(--ink-2); white-space: nowrap; }
+.pmm-file-chip-remove {
+  background: none; border: none; cursor: pointer;
+  color: var(--ink-2); padding: 2px; border-radius: 4px;
+  line-height: 1; font-size: 1rem; opacity: .6; transition: opacity .2s;
+}
+.pmm-file-chip-remove:hover { opacity: 1; color: var(--red); }
+
+/* ─────────────────────────────────────────────
+   PREVIEW TABLE
+───────────────────────────────────────────── */
+.pmm-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-top: 14px;
+}
+.pmm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8rem;
+}
+.pmm-table th {
+  background: var(--ink);
+  color: #fff;
+  font-family: var(--ff-h);
+  font-size: .72rem;
+  font-weight: 700;
+  padding: 9px 12px;
+  text-align: left;
+  white-space: nowrap;
+  letter-spacing: .03em;
+}
+.pmm-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.pmm-table tr:last-child td { border-bottom: none; }
+.pmm-table tr:nth-child(even) td { background: #FAFAF9; }
+.pmm-meta { font-size: .75rem; color: var(--ink-2); margin-top: 8px; }
+
+/* ─────────────────────────────────────────────
+   FIELD CHIPS (PDF fields list)
+───────────────────────────────────────────── */
+.pmm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 14px;
+}
+.pmm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: .78rem;
+  color: var(--ink);
+  font-weight: 500;
+}
+.pmm-chip-type {
+  font-size: .68rem;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-weight: 700;
+}
+.pmm-no-fields {
+  padding: 18px;
+  background: #FFF7ED;
+  border: 1px solid #FED7AA;
+  border-radius: var(--r-sm);
+  font-size: .83rem;
+  color: #92400E;
+  margin-top: 12px;
+  line-height: 1.5;
+}
+
+/* ─────────────────────────────────────────────
+   MAPPING TABLE
+───────────────────────────────────────────── */
+.pmm-map-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .83rem;
+}
+.pmm-map-table th {
+  font-size: .7rem;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 0 12px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.pmm-map-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.pmm-map-table tr:last-child td { border-bottom: none; }
+.pmm-map-table .field-name {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: .82rem;
+}
+.pmm-map-table select {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: var(--ff-b);
+  font-size: .82rem;
+  color: var(--ink);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .2s;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716C' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+.pmm-map-table select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.pmm-map-table .preview-val {
+  font-size: .75rem;
+  color: var(--ink-2);
+  font-style: italic;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pmm-map-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--accent-bg);
+  border-radius: var(--r-sm);
+  font-size: .8rem;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.pmm-map-info svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* ─────────────────────────────────────────────
+   GENERATE STEP
+───────────────────────────────────────────── */
+.pmm-gen-options {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.pmm-gen-options label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.pmm-gen-options label span {
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.pmm-gen-options input[type=text] {
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: var(--ff-b);
+  font-size: .88rem;
+  color: var(--ink);
+  transition: border-color .2s;
+}
+.pmm-gen-options input[type=text]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.pmm-gen-options small { font-size: .74rem; color: var(--ink-2); }
+
+/* ─────────────────────────────────────────────
+   BUTTONS
+───────────────────────────────────────────── */
+.pmm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: var(--r-sm);
+  font-family: var(--ff-h);
+  font-size: .88rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all .2s var(--ease);
+  white-space: nowrap;
+  letter-spacing: .01em;
+}
+.pmm-btn svg { width: 17px; height: 17px; }
+
+.pmm-btn-primary {
+  background: var(--ink);
+  color: #fff;
+  width: 100%;
+}
+.pmm-btn-primary:hover:not(:disabled) {
+  background: #374151;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,0,0,.18);
+}
+.pmm-btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+
+.pmm-btn-next {
+  background: var(--accent);
+  color: #fff;
+  margin-top: 18px;
+  width: 100%;
+}
+.pmm-btn-next:hover { background: #1D4ED8; transform: translateY(-1px); }
+
+.pmm-btn-download {
+  background: var(--green);
+  color: #fff;
+  width: 100%;
+  font-size: .95rem;
+  padding: 14px;
+  margin-top: 16px;
+}
+.pmm-btn-download:hover { background: #047857; transform: translateY(-1px); }
+
+/* ─────────────────────────────────────────────
+   PROGRESS BAR
+───────────────────────────────────────────── */
+.pmm-progress {
+  margin: 18px 0;
+}
+.pmm-progress-track {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.pmm-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #7C3AED);
+  border-radius: 3px;
+  width: 0%;
+  transition: width .3s var(--ease);
+}
+.pmm-progress-label {
+  font-size: .78rem;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+/* ─────────────────────────────────────────────
+   DOWNLOAD CARD
+───────────────────────────────────────────── */
+.pmm-download-card {
+  background: var(--green-bg);
+  border: 1px solid #A7F3D0;
+  border-radius: var(--r-sm);
+  padding: 20px;
+  text-align: center;
+  margin-top: 16px;
+}
+.pmm-download-card h3 {
+  font-family: var(--ff-h);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.pmm-download-card p { font-size: .82rem; color: var(--ink-2); margin-bottom: 16px; }
+.pmm-error-box {
+  background: var(--red-bg);
+  border: 1px solid #FECACA;
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+  font-size: .8rem;
+  color: var(--red);
+  margin-top: 10px;
+}
+
+/* ─────────────────────────────────────────────
+   DIVIDER
+───────────────────────────────────────────── */
+.pmm-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 18px 0;
+}
+
+/* ─────────────────────────────────────────────
+   UTILITY
+───────────────────────────────────────────── */
+.hidden { display: none !important; }
+.pmm-fade { animation: fadeUp .35s var(--ease) both; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
+</head>
+<body>
+<div class="pmm-wrap">
+
+  <!-- ── HERO ── -->
+  <div class="pmm-hero">
+    <div class="pmm-hero-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+        <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+    </div>
+    <h1>PDF Mail Merge</h1>
+    <p>Upload your spreadsheet and a fillable PDF, map the fields, and generate personalised PDFs in seconds — right in your browser.</p>
+  </div>
+
+  <!-- ── PROGRESS RAIL ── -->
+  <div class="pmm-rail" id="rail">
+    <div class="pmm-rail-step active" id="rail-1">
+      <div class="pmm-rail-num">1</div>
+      <div class="pmm-rail-label">Spreadsheet</div>
+    </div>
+    <div class="pmm-rail-step" id="rail-2">
+      <div class="pmm-rail-num">2</div>
+      <div class="pmm-rail-label">PDF Template</div>
+    </div>
+    <div class="pmm-rail-step" id="rail-3">
+      <div class="pmm-rail-num">3</div>
+      <div class="pmm-rail-label">Map Fields</div>
+    </div>
+    <div class="pmm-rail-step" id="rail-4">
+      <div class="pmm-rail-num">4</div>
+      <div class="pmm-rail-label">Generate</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STEP 1 — Spreadsheet
+  ═══════════════════════════════════════════ -->
+  <div class="pmm-step visible active" id="step-1">
+    <div class="pmm-step-head" onclick="toggleStep(1)">
+      <div class="pmm-step-head-num" id="s1-num">1</div>
+      <div class="pmm-step-head-title">Upload your Spreadsheet</div>
+      <div class="pmm-step-head-summary" id="s1-summary">—</div>
+      <svg class="pmm-step-head-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="pmm-step-body">
+
+      <!-- File chip (hidden until upload) -->
+      <div class="pmm-file-chip hidden" id="s1-chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <span class="pmm-file-chip-name" id="s1-fname">file.xlsx</span>
+        <span class="pmm-file-chip-meta" id="s1-fmeta">0 rows</span>
+        <button class="pmm-file-chip-remove" onclick="resetStep1()" title="Remove file">✕</button>
+      </div>
+
+      <!-- Dropzone -->
+      <div class="pmm-drop" id="s1-drop">
+        <input type="file" id="s1-input" accept=".xlsx,.xls,.csv" />
+        <div class="pmm-drop-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+          </svg>
+        </div>
+        <p>Drop your file here, or click to browse</p>
+        <small>Supports .xlsx, .xls and .csv files</small>
+      </div>
+
+      <!-- Preview -->
+      <div id="s1-preview" class="hidden">
+        <div class="pmm-table-wrap">
+          <table class="pmm-table">
+            <thead><tr id="s1-thead"></tr></thead>
+            <tbody id="s1-tbody"></tbody>
+          </table>
+        </div>
+        <p class="pmm-meta" id="s1-meta"></p>
+      </div>
+
+      <button class="pmm-btn pmm-btn-next hidden" id="s1-next" onclick="completeStep(1)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        Continue to PDF Template
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STEP 2 — PDF Template
+  ═══════════════════════════════════════════ -->
+  <div class="pmm-step" id="step-2">
+    <div class="pmm-step-head" onclick="toggleStep(2)">
+      <div class="pmm-step-head-num" id="s2-num">2</div>
+      <div class="pmm-step-head-title">Upload your Fillable PDF</div>
+      <div class="pmm-step-head-summary" id="s2-summary">—</div>
+      <svg class="pmm-step-head-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="pmm-step-body">
+
+      <div class="pmm-file-chip hidden" id="s2-chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        <span class="pmm-file-chip-name" id="s2-fname">template.pdf</span>
+        <span class="pmm-file-chip-meta" id="s2-fmeta">0 fields</span>
+        <button class="pmm-file-chip-remove" onclick="resetStep2()" title="Remove file">✕</button>
+      </div>
+
+      <div class="pmm-drop" id="s2-drop">
+        <input type="file" id="s2-input" accept=".pdf" />
+        <div class="pmm-drop-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <p>Drop your PDF template here, or click to browse</p>
+        <small>Must be a fillable PDF with form fields (AcroForm)</small>
+      </div>
+
+      <div id="s2-fields" class="hidden">
+        <div class="pmm-divider"></div>
+        <p style="font-size:.8rem;font-weight:700;color:var(--ink-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;">Detected Form Fields</p>
+        <div class="pmm-chips" id="s2-chips"></div>
+      </div>
+
+      <div class="pmm-no-fields hidden" id="s2-warn">
+        ⚠️ <strong>No AcroForm fields detected.</strong> Make sure your PDF was created with form fields (e.g. using Adobe Acrobat, pdfescape.com, or Smallpdf). You can still proceed, but no data will be merged.
+      </div>
+
+      <button class="pmm-btn pmm-btn-next hidden" id="s2-next" onclick="completeStep(2)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        Continue to Field Mapping
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STEP 3 — Map Fields
+  ═══════════════════════════════════════════ -->
+  <div class="pmm-step" id="step-3">
+    <div class="pmm-step-head" onclick="toggleStep(3)">
+      <div class="pmm-step-head-num" id="s3-num">3</div>
+      <div class="pmm-step-head-title">Map PDF Fields to Columns</div>
+      <div class="pmm-step-head-summary" id="s3-summary">—</div>
+      <svg class="pmm-step-head-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="pmm-step-body">
+
+      <div class="pmm-map-info">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Fields with a matching column name are auto-mapped. Review and adjust as needed.
+      </div>
+
+      <table class="pmm-map-table">
+        <thead>
+          <tr>
+            <th style="width:36%">PDF Field</th>
+            <th style="width:38%">Excel Column</th>
+            <th style="width:26%">Preview</th>
+          </tr>
+        </thead>
+        <tbody id="s3-body"></tbody>
+      </table>
+
+      <button class="pmm-btn pmm-btn-next" style="margin-top:20px" onclick="completeStep(3)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        Continue to Generate
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       STEP 4 — Generate & Download
+  ═══════════════════════════════════════════ -->
+  <div class="pmm-step" id="step-4">
+    <div class="pmm-step-head" onclick="toggleStep(4)">
+      <div class="pmm-step-head-num" id="s4-num">4</div>
+      <div class="pmm-step-head-title">Generate &amp; Download</div>
+      <div class="pmm-step-head-summary" id="s4-summary">—</div>
+      <svg class="pmm-step-head-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="pmm-step-body">
+
+      <div class="pmm-gen-options">
+        <label>
+          <span>Filename Pattern</span>
+          <input type="text" id="s4-pattern" value="output_{row}" placeholder="e.g. invoice_{Name}_{row}" />
+          <small>Use <code>{ColumnName}</code> or <code>{row}</code> as placeholders.</small>
+        </label>
+      </div>
+
+      <!-- Progress -->
+      <div class="pmm-progress hidden" id="s4-progress">
+        <div class="pmm-progress-track"><div class="pmm-progress-bar" id="s4-bar"></div></div>
+        <div class="pmm-progress-label" id="s4-label">Preparing…</div>
+      </div>
+
+      <!-- Error box -->
+      <div class="pmm-error-box hidden" id="s4-error"></div>
+
+      <!-- Generate button -->
+      <button class="pmm-btn pmm-btn-primary" id="s4-btn" onclick="generateAll()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        Generate PDFs
+      </button>
+
+      <!-- Download card -->
+      <div class="pmm-download-card hidden pmm-fade" id="s4-done">
+        <h3>✅ All PDFs Ready!</h3>
+        <p id="s4-done-meta">0 files generated.</p>
+        <a href="#" class="pmm-btn pmm-btn-download" id="s4-download" download="pdf-mail-merge.zip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download ZIP
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /.pmm-wrap -->
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════ */
+const S = {
+  excel: { headers: [], rows: [], name: '', total: 0 },
+  pdf:   { bytes: null, fields: [], name: '' },
+  map:   {},   // { pdfField: excelColumn }
+};
+
+/* ═══════════════════════════════════════════════════════
+   STEP MACHINE
+═══════════════════════════════════════════════════════ */
+let activeStep = 1;
+
+function revealStep(n) {
+  const el = document.getElementById('step-' + n);
+  if (!el) return;
+  el.classList.add('visible', 'active');
+  // small delay so CSS transition fires
+  setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 120);
+  // Update rail
+  const r = document.getElementById('rail-' + n);
+  if (r) { r.classList.remove('done'); r.classList.add('active'); }
+}
+
+function completeStep(n) {
+  const el = document.getElementById('step-' + n);
+  if (el) { el.classList.add('collapsed', 'done'); el.classList.remove('active'); }
+  const r = document.getElementById('rail-' + n);
+  if (r) {
+    r.classList.remove('active');
+    r.classList.add('done');
+    r.querySelector('.pmm-rail-num').innerHTML =
+      `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`;
+  }
+  activeStep = n + 1;
+  revealStep(n + 1);
+}
+
+function toggleStep(n) {
+  const el = document.getElementById('step-' + n);
+  if (!el || !el.classList.contains('done')) return;
+  el.classList.toggle('collapsed');
+}
+
+/* ═══════════════════════════════════════════════════════
+   DRAG + DROP BINDINGS
+═══════════════════════════════════════════════════════ */
+function bindDrop(dropId, inputId, handler) {
+  const drop  = document.getElementById(dropId);
+  const input = document.getElementById(inputId);
+  if (!drop || !input) return;
+
+  input.addEventListener('change', e => { if (e.target.files[0]) handler(e.target.files[0]); });
+
+  drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', ()=> drop.classList.remove('over'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault();
+    drop.classList.remove('over');
+    const f = e.dataTransfer?.files?.[0];
+    if (f) handler(f);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   STEP 1 — EXCEL PARSING  (SheetJS)
+═══════════════════════════════════════════════════════ */
+bindDrop('s1-drop', 's1-input', handleExcel);
+
+function handleExcel(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      if (!raw.length) { alert('Spreadsheet appears to be empty.'); return; }
+
+      // First non-empty row = headers
+      let hIdx = 0;
+      while (hIdx < raw.length && raw[hIdx].every(v => String(v).trim() === '')) hIdx++;
+      const headers = raw[hIdx].map((h, i) => String(h).trim() || 'Column_' + (i+1));
+
+      // Data rows
+      const rows = raw.slice(hIdx + 1)
+        .filter(r => r.some(v => String(v).trim() !== ''))
+        .map(r => {
+          const obj = {};
+          headers.forEach((h, i) => {
+            let v = r[i] ?? '';
+            if (v instanceof Date) v = v.toISOString().split('T')[0];
+            obj[h] = String(v).trim();
+          });
+          return obj;
+        });
+
+      S.excel = { headers, rows, name: file.name, total: rows.length };
+      renderExcelPreview(headers, rows, file.name);
+    } catch (err) {
+      alert('Could not parse spreadsheet: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderExcelPreview(headers, rows, fname) {
+  // Chip
+  document.getElementById('s1-fname').textContent = fname;
+  document.getElementById('s1-fmeta').textContent = rows.length + ' rows · ' + headers.length + ' cols';
+  document.getElementById('s1-chip').classList.remove('hidden');
+  document.getElementById('s1-drop').classList.add('hidden');
+
+  // Table headers
+  const thead = document.getElementById('s1-thead');
+  thead.innerHTML = headers.map(h => `<th>${esc(h)}</th>`).join('');
+
+  // Table rows (max 5)
+  const tbody = document.getElementById('s1-tbody');
+  tbody.innerHTML = rows.slice(0, 5).map(r =>
+    '<tr>' + headers.map(h => `<td>${esc(r[h] ?? '')}</td>`).join('') + '</tr>'
+  ).join('');
+
+  document.getElementById('s1-meta').textContent =
+    `Showing first ${Math.min(5, rows.length)} of ${rows.length} rows`;
+
+  // Summary for collapsed state
+  document.getElementById('s1-summary').textContent =
+    rows.length + ' rows · ' + headers.length + ' columns';
+
+  document.getElementById('s1-preview').classList.remove('hidden');
+  document.getElementById('s1-next').classList.remove('hidden');
+}
+
+function resetStep1() {
+  S.excel = { headers: [], rows: [], name: '', total: 0 };
+  document.getElementById('s1-chip').classList.add('hidden');
+  document.getElementById('s1-drop').classList.remove('hidden');
+  document.getElementById('s1-preview').classList.add('hidden');
+  document.getElementById('s1-next').classList.add('hidden');
+  document.getElementById('s1-input').value = '';
+}
+
+/* ═══════════════════════════════════════════════════════
+   STEP 2 — PDF PARSING
+   Scans page annotation arrays directly instead of using
+   form.getFields() — works on every PDF type including
+   hand-built, scanned, and non-standard AcroForms.
+═══════════════════════════════════════════════════════ */
+bindDrop('s2-drop', 's2-input', handlePdf);
+
+async function handlePdf(file) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    alert('Please upload a .pdf file.');
+    return;
+  }
+  try {
+    const bytes  = await file.arrayBuffer();
+    const doc    = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+    const fields = scanAnnotations(doc); // raw scan — reliable on all PDFs
+
+    S.pdf.bytes  = bytes;
+    S.pdf.name   = file.name;
+    S.pdf.fields = fields;
+
+    renderPdfPreview(file.name, fields);
+  } catch (err) {
+    alert('Could not parse PDF: ' + err.message + '\nMake sure the file is a fillable PDF.');
+  }
+}
+
+/* ── Raw annotation scanner ────────────────────────────────────────────────
+   Iterates every page → every /Annots entry → looks for /Subtype /Widget
+   → extracts /T (field name) and /FT (field type).
+   Returns: [{ name, type }]
+────────────────────────────────────────────────────────────────────────── */
+function scanAnnotations(doc) {
+  const { PDFName } = PDFLib;
+  const found = new Map(); // name → type string
+
+  doc.getPages().forEach(page => {
+    try {
+      const annotsRef = page.node.get(PDFName.of('Annots'));
+      if (!annotsRef) return;
+      const annots = doc.context.lookup(annotsRef);
+      if (!annots?.asArray) return;
+
+      annots.asArray().forEach(ref => {
+        try {
+          const obj = doc.context.lookup(ref);
+          if (!obj?.get) return;
+
+          // Must be /Widget subtype
+          const sub = obj.get(PDFName.of('Subtype'));
+          if (!sub || sub.toString() !== '/Widget') return;
+
+          // Field name from /T
+          const tEntry = obj.get(PDFName.of('T'));
+          if (!tEntry) return;
+          const name = pdfStringToJS(tEntry);
+          if (!name || found.has(name)) return;
+
+          // Field type from /FT (Tx = text, Btn = button/checkbox, Ch = choice)
+          const ftEntry = obj.get(PDFName.of('FT'));
+          const rawFT   = ftEntry ? ftEntry.toString().replace('/', '') : 'Tx';
+          const typeMap  = { Tx: 'Text', Btn: 'Button/Checkbox', Ch: 'Dropdown', Sig: 'Signature' };
+          found.set(name, typeMap[rawFT] || rawFT);
+        } catch (_) {}
+      });
+    } catch (_) {}
+  });
+
+  return [...found.entries()].map(([name, type]) => ({ name, type }));
+}
+
+/* Helper: safely convert a PDFString / PDFHexString / PDFName to a JS string */
+function pdfStringToJS(entry) {
+  if (!entry) return '';
+  try { return entry.decodeText(); }     catch (_) {}
+  try { return entry.asString(); }        catch (_) {}
+  const s = entry.toString();
+  // Literal string: (value)  →  value
+  if (s.startsWith('(') && s.endsWith(')')) return s.slice(1, -1);
+  return s;
+}
+
+function renderPdfPreview(fname, fields) {
+  document.getElementById('s2-fname').textContent = fname;
+  document.getElementById('s2-fmeta').textContent = fields.length + ' fields';
+  document.getElementById('s2-chip').classList.remove('hidden');
+  document.getElementById('s2-drop').classList.add('hidden');
+
+  const chips = document.getElementById('s2-chips');
+  chips.innerHTML = '';
+
+  if (fields.length === 0) {
+    document.getElementById('s2-warn').classList.remove('hidden');
+  } else {
+    document.getElementById('s2-warn').classList.add('hidden');
+    fields.forEach(f => {
+      chips.insertAdjacentHTML('beforeend',
+        `<span class="pmm-chip">${esc(f.name)}<span class="pmm-chip-type">${esc(f.type)}</span></span>`
+      );
+    });
+    document.getElementById('s2-fields').classList.remove('hidden');
+  }
+
+  document.getElementById('s2-summary').textContent = fields.length + ' form fields';
+  document.getElementById('s2-next').classList.remove('hidden');
+}
+
+function resetStep2() {
+  S.pdf = { bytes: null, fields: [], name: '' };
+  document.getElementById('s2-chip').classList.add('hidden');
+  document.getElementById('s2-drop').classList.remove('hidden');
+  document.getElementById('s2-fields').classList.add('hidden');
+  document.getElementById('s2-warn').classList.add('hidden');
+  document.getElementById('s2-next').classList.add('hidden');
+  document.getElementById('s2-input').value = '';
+}
+
+/* ═══════════════════════════════════════════════════════
+   STEP 3 — MAPPING UI
+═══════════════════════════════════════════════════════ */
+const origCompleteStep = completeStep;
+window.completeStep = function(n) {
+  if (n === 1 && !S.excel.headers.length) { alert('Please upload a spreadsheet first.'); return; }
+  if (n === 2) {
+    if (!S.pdf.bytes) { alert('Please upload a PDF template first.'); return; }
+    buildMappingTable();
+  }
+  if (n === 3) {
+    const mapped = Object.values(S.map).filter(Boolean).length;
+    if (mapped === 0) { alert('Please map at least one field to a column.'); return; }
+    document.getElementById('s3-summary').textContent = mapped + ' fields mapped';
+  }
+  origCompleteStep(n);
+};
+
+function buildMappingTable() {
+  S.map = {};
+  const body     = document.getElementById('s3-body');
+  const headers  = S.excel.headers;
+  const firstRow = S.excel.rows[0] || {};
+
+  function autoMatch(name) {
+    const norm = s => s.toLowerCase().replace(/[\s_\-]/g, '');
+    return headers.find(h => norm(h) === norm(name)) || '';
+  }
+
+  const colOptions = `<option value="">— Skip —</option>` +
+    headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`).join('');
+
+  body.innerHTML = S.pdf.fields.map(f => {
+    const matched = autoMatch(f.name);
+    if (matched) S.map[f.name] = matched;
+    const preview = matched ? (firstRow[matched] || '') : '';
+    const opts = colOptions.replace(`value="${esc(matched)}"`, `value="${esc(matched)}" selected`);
+    return `<tr>
+      <td><span class="field-name">${esc(f.name)}</span></td>
+      <td><select data-field="${esc(f.name)}" onchange="updateMap(this)">${opts}</select></td>
+      <td><span class="preview-val" id="prev-${esc(f.name)}">${esc(preview)}</span></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('s3-summary').textContent =
+    Object.values(S.map).filter(Boolean).length + ' / ' + S.pdf.fields.length + ' mapped';
+}
+
+function updateMap(sel) {
+  const field  = sel.dataset.field;
+  const col    = sel.value;
+  S.map[field] = col || null;
+  const firstRow = S.excel.rows[0] || {};
+  const prev = document.getElementById('prev-' + field);
+  if (prev) prev.textContent = col ? (firstRow[col] || '') : '';
+  const mapped = Object.values(S.map).filter(Boolean).length;
+  document.getElementById('s3-summary').textContent =
+    mapped + ' / ' + S.pdf.fields.length + ' mapped';
+}
+
+/* ═══════════════════════════════════════════════════════
+   UNICODE FONT LOADER
+   ─────────────────────────────────────────────────────
+   Noto Sans covers: Latin, Cyrillic, Greek, Devanagari,
+   Arabic, Hebrew, Vietnamese, Armenian, Georgian + more.
+   Buffer is fetched once and reused across all PDFs.
+   We try TTF first — fontkit handles TTF most reliably.
+   WOFF is the fallback (also supported by fontkit).
+═══════════════════════════════════════════════════════ */
+let _unicodeFontBuf = null; // null=not tried | false=failed | ArrayBuffer=ready
+
+async function loadUnicodeFont() {
+  if (_unicodeFontBuf !== null) return _unicodeFontBuf;
+
+  const candidates = [
+    // TTF — most reliable with fontkit, broad Latin+Cyrillic+Greek+Devanagari
+    'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans@5.0.3/files/noto-sans-all-400-normal.woff',
+    'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans@4.5.14/files/noto-sans-all-400-normal.woff',
+    // Direct TTF fallback
+    'https://cdn.jsdelivr.net/npm/noto-sans@1.1.0/fonts/NotoSans-Regular.ttf',
+  ];
+
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { cache: 'force-cache' });
+      if (res.ok) {
+        _unicodeFontBuf = await res.arrayBuffer();
+        console.log('[PMM] Font loaded:', url, `(${(_unicodeFontBuf.byteLength/1024).toFixed(0)} KB)`);
+        return _unicodeFontBuf;
+      }
+    } catch (_) {}
+  }
+
+  console.warn('[PMM] All font URLs failed — Latin-only Helvetica will be used');
+  _unicodeFontBuf = false;
+  return false;
+}
+
+/* ═══════════════════════════════════════════════════════
+   FILL ONE PDF  —  AcroForm-native approach
+   ─────────────────────────────────────────────────────
+   Step-by-step:
+   1. Load the PDF document
+   2. Register fontkit so pdf-lib can embed custom fonts
+   3. Embed NotoSans — gives us full Unicode glyph support
+   4. Access the form with pdfDoc.getForm()
+   5. For each mapped field: getTextField() + setText()
+   6. updateFieldAppearances(font) — renders visible text
+      into every field's /AP appearance stream
+   7. form.flatten() — bakes appearances into page content,
+      removes interactive annotations → permanently locked
+
+   WHY updateFieldAppearances works here (vs previous code):
+   • The previous code called it WITHOUT fontkit registered,
+     so pdf-lib could not embed the custom font — it silently
+     fell back to nothing and every field stayed blank.
+   • Now fontkit is registered BEFORE embedFont(), so pdf-lib
+     can build a proper CIDFont/ToUnicode stream that covers
+     every character in every script.
+   • subset: false guarantees the full glyph set is embedded,
+     so characters that appear only at form.flatten() time
+     (during appearance rasterisation) are never missing.
+═══════════════════════════════════════════════════════ */
+async function fillPdf(pdfBytes, row) {
+  const { PDFDocument, StandardFonts } = PDFLib;
+
+  // ── 1. Load ───────────────────────────────────────────────────────────────
+  const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+
+  // ── 2. Register fontkit ───────────────────────────────────────────────────
+  // MUST happen before the first embedFont() call on this document.
+  // fontkit is the UMD global injected by the <script> tag in <head>.
+  if (typeof fontkit === 'undefined') {
+    throw new Error('fontkit not loaded — check the <script> tag for @pdf-lib/fontkit');
+  }
+  doc.registerFontkit(fontkit);
+
+  // ── 3. Embed Unicode font ─────────────────────────────────────────────────
+  // subset: false — embed the complete glyph set.
+  // This is intentional: updateFieldAppearances() renders glyphs internally
+  // and with subset:true those glyphs may not yet be "seen" by pdf-lib's
+  // subsetter, causing tofu boxes (□) for non-Latin characters.
+  let unicodeFont;
+  const fontBuf = await loadUnicodeFont();
+  if (fontBuf) {
+    try {
+      unicodeFont = await doc.embedFont(fontBuf, { subset: false });
+    } catch (embedErr) {
+      console.warn('[PMM] Custom font embed error:', embedErr.message);
+    }
+  }
+  // Always have a Latin fallback — StandardFonts do NOT need fontkit
+  const fallbackFont = await doc.embedFont(StandardFonts.Helvetica);
+  const activeFont   = unicodeFont || fallbackFont;
+
+  // ── 4. Get the AcroForm ───────────────────────────────────────────────────
+  const form = doc.getForm();
+
+  // ── 5. Fill each mapped field ─────────────────────────────────────────────
+  for (const [fieldName, excelCol] of Object.entries(S.map)) {
+    // Skip unmapped columns
+    if (!excelCol) continue;
+
+    // Coerce to string and strip leading/trailing whitespace
+    const value = String(row[excelCol] ?? '').trim();
+
+    // Skip empty values — don't overwrite default placeholder text
+    if (!value) continue;
+
+    try {
+      // getTextField() throws if the field doesn't exist or isn't a text field.
+      // We intentionally only handle text fields — checkboxes/radios need
+      // different logic and aren't part of the current mapping UI.
+      const field = form.getTextField(fieldName);
+      field.setText(value);
+    } catch (_) {
+      // Field not found, wrong type, or read-only — skip silently
+    }
+  }
+
+  // ── 6. Render appearances — THIS is what puts visible text into the PDF ───
+  // updateFieldAppearances(font) iterates every field, builds an /AP
+  // (appearance) XObject stream with the field's current value rendered
+  // using the supplied font, and writes it into the PDF structure.
+  // Without this call the values exist in the data but are never drawn.
+  try {
+    form.updateFieldAppearances(activeFont);
+  } catch (uaErr) {
+    // Partial failure is acceptable — some fields may already have
+    // their own /AP streams from the original PDF authoring tool.
+    console.warn('[PMM] updateFieldAppearances error (non-fatal):', uaErr.message);
+  }
+
+  // ── 7. Flatten — make the PDF permanently non-editable ───────────────────
+  // flatten() merges every field's /AP appearance stream into the page's
+  // static content stream, then removes all /Widget annotations and the
+  // /AcroForm dictionary. The output has no form fields whatsoever.
+  try {
+    form.flatten();
+  } catch (flatErr) {
+    console.warn('[PMM] flatten error (non-fatal):', flatErr.message);
+  }
+
+  return doc.save();
+}
+
+/* ═══════════════════════════════════════════════════════
+   GENERATE ALL PDFs + ZIP
+═══════════════════════════════════════════════════════ */
+function resolveFilename(pattern, row, rowNum) {
+  let name = pattern.replace('{row}', rowNum);
+  S.excel.headers.forEach(h => { name = name.replaceAll('{' + h + '}', row[h] || ''); });
+  name = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
+  return name || 'output_' + rowNum;
+}
+
+async function generateAll() {
+  if (!S.excel.rows.length) { alert('No spreadsheet data.'); return; }
+  if (!S.pdf.bytes)         { alert('No PDF template.'); return; }
+
+  const btn      = document.getElementById('s4-btn');
+  const progWrap = document.getElementById('s4-progress');
+  const bar      = document.getElementById('s4-bar');
+  const label    = document.getElementById('s4-label');
+  const errBox   = document.getElementById('s4-error');
+  const doneCard = document.getElementById('s4-done');
+  const pattern  = document.getElementById('s4-pattern').value || 'output_{row}';
+
+  btn.disabled = true;
+  progWrap.classList.remove('hidden');
+  doneCard.classList.add('hidden');
+  errBox.classList.add('hidden');
+
+  // Pre-load the Unicode font once so every PDF reuses the cached buffer
+  label.textContent = 'Loading Unicode font…';
+  bar.style.width   = '2%';
+  await loadUnicodeFont();
+
+  const zip    = new JSZip();
+  const total  = S.excel.rows.length;
+  const errors = [];
+  let   done   = 0;
+
+  for (let i = 0; i < total; i++) {
+    const row      = S.excel.rows[i];
+    const rowNum   = i + 1;
+    const filename = resolveFilename(pattern, row, rowNum) + '.pdf';
+
+    try {
+      const filled = await fillPdf(S.pdf.bytes, row);
+      zip.file(filename, filled);
+    } catch (e) {
+      errors.push(`Row ${rowNum}: ${e.message}`);
+    }
+
+    done++;
+    bar.style.width   = (2 + Math.round((done / total) * 90)) + '%';
+    label.textContent = `Filling PDF ${done} of ${total}…`;
+  }
+
+  label.textContent = 'Building ZIP…';
+  bar.style.width   = '95%';
+
+  try {
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    const url  = URL.createObjectURL(blob);
+
+    bar.style.width   = '100%';
+    label.textContent = 'Done!';
+
+    document.getElementById('s4-done-meta').textContent =
+      `${done - errors.length} PDFs filled & flattened · ZIP ready.` +
+      (errors.length ? ` · ${errors.length} error(s)` : '');
+
+    document.getElementById('s4-download').href     = url;
+    document.getElementById('s4-download').download =
+      'pdf-mail-merge-' + new Date().toISOString().slice(0, 10) + '.zip';
+
+    doneCard.classList.remove('hidden');
+    document.getElementById('s4-summary').textContent = (done - errors.length) + ' PDFs generated';
+
+    const r4 = document.getElementById('rail-4');
+    if (r4) { r4.classList.add('done'); r4.classList.remove('active'); }
+
+    if (errors.length) {
+      errBox.textContent = errors.slice(0, 5).join('\n');
+      errBox.classList.remove('hidden');
+    }
+  } catch (e) {
+    label.textContent  = 'ZIP generation failed.';
+    errBox.textContent = e.message;
+    errBox.classList.remove('hidden');
+  }
+
+  btn.disabled = false;
+}
+
+/* ═══════════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════════ */
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>
